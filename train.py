@@ -188,6 +188,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             #     print("Clean trajectory", clean_trajectories[0])
             #     print("Noisy trajectory", noisy_trajectories[0])
 
+            clean_trajectories = clean_trajectories.to(DEVICE)
             noisy_trajectories = noisy_trajectories.to(DEVICE)
             timesteps = timesteps.to(DEVICE)
             noise = noise.to(DEVICE)
