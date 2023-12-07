@@ -14,15 +14,30 @@ from datetime import datetime
 # ------------ #
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+print("Using device: ", DEVICE)
+
 SEED = 0
 
 class TrainingConfig:
     num_epochs = 1000
-    batch_size = 320
+    batch_size = 32
     learning_rate = 1e-4
     lr_warmup_steps = 1000
     num_train_timesteps = 1000
 # ------------ #
+class MockDataset(Dataset):
+    def __init__(self, num_samples=100, sequence_length=8, num_features=2):
+        # Create a dataset of increasing sequences
+        self.data = torch.arange(start=0, end=sequence_length, step=1).repeat(num_samples, num_features, 1).float()
+        # Optionally, you can add a small random noise to the data to make it slightly more realistic
+        # self.data += torch.randn(num_samples, num_features, sequence_length) * 0.1
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -35,39 +50,6 @@ class ConvBlock(nn.Module):
     def forward(self, x):
         x = self.relu(self.batchnorm(self.conv1(x)))
         x = self.relu(self.batchnorm(self.conv2(x)))
-        return x
-
-class ResConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
-        super(ResConvBlock, self).__init__()
-        
-        self.conv_skip = nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
-        self.conv_1 = nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.group_norm_1 = nn.GroupNorm(1, out_channels)
-        self.gelu_1 = nn.GELU()
-        self.conv_2 = nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.group_norm_2 = nn.GroupNorm(1, out_channels)
-        self.gelu_2 = nn.GELU()
-
-    def forward(self, x):
-        skip = self.conv_skip(x)
-        
-        x = self.conv_1(x)
-        x = self.group_norm_1(x)
-        x = self.gelu_1(x)
-        x = self.conv_2(x)
-        x = self.group_norm_2(x)
-        x = self.gelu_2(x)
-
-        return x + skip
-
-class DebugBlock(nn.Module):
-    def __init__(self):
-        super(DebugBlock, self).__init__()
-        self.res_conv_block = ResConvBlock(in_channels=2, out_channels=32, kernel_size=5, stride=1, padding=2)
-
-    def forward(self, x):
-        x = self.res_conv_block(x)
         return x
 
 class DebugNet(nn.Module):
@@ -182,20 +164,6 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
     torch.save(checkpoint, filepath)
     print(f"Saved checkpoint to {filepath}")
 
-class MockDataset(Dataset):
-    def __init__(self, num_samples=100, sequence_length=8, num_features=2):
-        # Create a dataset of increasing sequences
-        self.data = torch.arange(start=0, end=sequence_length, step=1).repeat(num_samples, num_features, 1).float()
-        # Optionally, you can add a small random noise to the data to make it slightly more realistic
-        # self.data += torch.randn(num_samples, num_features, sequence_length) * 0.1
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx]
-
-
 def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_scheduler):
 
     global_step = 0
@@ -217,8 +185,19 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             #     print("Timestep: ", timesteps[0])
             #     print("Clean trajectory", clean_trajectories[0])
             #     print("Noisy trajectory", noisy_trajectories[0])
-            
+
+            noisy_trajectories = noisy_trajectories.to(DEVICE)
+
             noise_pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
+
+            if global_step%10 == 0:
+                # get the index of the smallest timestep
+                idx = torch.argmin(timesteps)
+                print("Timestep: ", timesteps[idx])
+                print("Noisy trajectory", noisy_trajectories[idx])
+                print("Predicted noise", noise_pred[idx])
+                print("Reconstructed trajectory", clean_trajectories[idx] - noise_pred[idx])
+                print("Current learning rate", lr_scheduler.get_last_lr()[0])
 
             loss = F.mse_loss(noise_pred, noise)
             loss.backward()
