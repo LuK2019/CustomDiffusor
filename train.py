@@ -24,10 +24,10 @@ SEED = 0
 class TrainingConfig:
     num_epochs = int(2e6)
     batch_size = 1600
-    learning_rate = 2e-4
+    learning_rate =1e-5 # 2e-4
     lr_warmup_steps = 1000
     num_train_timesteps = 1000
-    horizon = 42 #Must be multiple of 8
+    horizon = 40 #Must be multiple of 8
     action_dim = 1
     state_dim = 1
 # ------------ #
