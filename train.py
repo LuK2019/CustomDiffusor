@@ -188,6 +188,9 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
 
             noisy_trajectories = noisy_trajectories.to(DEVICE)
 
+            assert noisy_trajectories.to(DEVICE).is_cuda, f"Noisy trajectories are not on the correct device {noisy_trajectories.to(DEVICE).is_cuda} != {DEVICE}"
+            assert next(model.parameters()).is_cuda, f"Model is not on the correct device {next(model.parameters()).is_cuda} != {DEVICE}"
+
             noise_pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
 
             if global_step%10 == 0:
