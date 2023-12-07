@@ -166,6 +166,8 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
 
 def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_scheduler):
 
+    model = model.to(DEVICE)
+
     global_step = 0
 
     train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, pin_memory=True, num_workers=0)
@@ -187,9 +189,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             #     print("Noisy trajectory", noisy_trajectories[0])
 
             noisy_trajectories = noisy_trajectories.to(DEVICE)
-
-            assert noisy_trajectories.to(DEVICE).is_cuda, f"Noisy trajectories are not on the correct device {noisy_trajectories.to(DEVICE).is_cuda} != {DEVICE}"
-            assert next(model.parameters()).is_cuda, f"Model is not on the correct device {next(model.parameters()).is_cuda} != {DEVICE}"
+            timesteps = timesteps.to(DEVICE)
+            noise = noise.to(DEVICE)
 
             noise_pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
 
