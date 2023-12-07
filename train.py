@@ -20,8 +20,8 @@ print("Using device: ", DEVICE)
 SEED = 0
 
 class TrainingConfig:
-    num_epochs = 1000
-    batch_size = 32
+    num_epochs = 100000
+    batch_size = 1024
     learning_rate = 1e-4
     lr_warmup_steps = 1000
     num_train_timesteps = 1000
@@ -165,6 +165,8 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
     print(f"Saved checkpoint to {filepath}")
 
 def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_scheduler):
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%Y_%H-%M-%S")
 
     model = model.to(DEVICE)
 
@@ -219,9 +221,12 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             progress_bar.set_postfix(**logs)
             global_step += 1
 
+            if global_step % 100000 ==0:
+                    path = f"models/{dt_string}_step_{global_step}.ckpt"
+                    save_checkpoint(model, optimizer, epoch, loss, path)
+
     now = datetime.now()
-    dt_string = now.strftime("%d-%m-%Y_%H-%M-%S")
-    path = f"models/{dt_string}.ckpt"
+    path = f"models/{dt_string}_final_step_{global_step}.ckpt"
     save_checkpoint(model, optimizer, epoch, loss, path)
 
 if __name__ == "__main__":
