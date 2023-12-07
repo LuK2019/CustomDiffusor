@@ -6,7 +6,7 @@ import tqdm
 from train import get_optimizer, get_model, get_noise_scheduler
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-CHECKPOINT = "06-12-2023_17-25-17"
+CHECKPOINT = "06-12-2023_18-07-16"
 
 # ------------ #
 #  Parameters  #
@@ -19,6 +19,7 @@ class SamplingConfig:
   action_dim = 1
   learning_rate = 1e-4
   eta = 1.0
+  num_train_timesteps = 1000
 
 # ------------ #
 
@@ -31,39 +32,38 @@ def load_checkpoint(model, optimizer, filepath):
     loss = checkpoint['loss']
     return model, optimizer
 
-def reset_x0(x_in, cond, act_dim):
+def reset_start_and_target(x_in, cond, act_dim):
 	for key, val in cond.items():
-		x_in[:, key, act_dim:] = val.clone()
+		x_in[:,act_dim:, key] = val.clone()
 	return x_in
 
 if __name__ == "__main__":
   config = SamplingConfig()
   shape = (config.batch_size,config.state_dim+config.action_dim, config.horizon)
-  scheduler = get_noise_scheduler()
+  scheduler = get_noise_scheduler(config)
   model = get_model("unet1d")
   optimizer = get_optimizer(model, config)
   model, optimizer = load_checkpoint(model, optimizer, "models/"+CHECKPOINT+".ckpt")
   conditions = {
                 0: torch.zeros((config.batch_size, config.state_dim)),
+                -1: torch.ones((config.batch_size, config.state_dim))*7
               }
   # sample random initial noise vector and condition on first state
-  x1 = torch.randn(shape, device=DEVICE)
-  # x = reset_x0(x1, conditions, config.action_dim)
-  x = x1 
+  x = torch.randn(shape, device=DEVICE)
+  print("Initial noise vector: ", x[0,:,:])
 
-  print("Shape of noise vector: ", x.shape)
-  print("Initial noise vector: ", x[0,0,:])
+  x = reset_start_and_target(x, conditions, config.action_dim)
+  print("Initial noise vector after setting start and target: ", x[0,:,:])
 
   for i in tqdm.tqdm(scheduler.timesteps):
 
       timesteps = torch.full((config.batch_size,), i, device=DEVICE, dtype=torch.long)
 
       with torch.no_grad():
-        residual = model(x, timesteps).sample #QUESTION: Why permute? Why .sample?
+        residual = model(x, timesteps).sample
 
-      # 2. use the model prediction to reconstruct an observation (de-noise)
-      obs_reconstruct = scheduler.step(residual, i, x)["prev_sample"] #QUESTION: What is happening here? What is the scheduler obejct? What is happening behind the scenes?
-      # 3. [optional] add posterior noise to the sample #QUESTION: What is posterior noise? Why would zou add it? Is this correctly implemented?
+      obs_reconstruct = scheduler.step(residual, i, x)["prev_sample"]
+
       if config.eta > 0:
         noise = torch.randn(obs_reconstruct.shape).to(obs_reconstruct.device)
         posterior_variance = scheduler._get_variance(i) # * noise
@@ -72,10 +72,9 @@ if __name__ == "__main__":
         obs_reconstruct = obs_reconstruct + int(i>0) * (0.5 * posterior_variance) * config.eta* noise  # MJ had as log var, exponentiated
 
       # 4. apply conditions to the trajectory
-      # obs_reconstruct_postcond = reset_x0(obs_reconstruct, conditions, config.action_dim)
-      obs_reconstruct_postcond = obs_reconstruct
+      obs_reconstruct_postcond = reset_start_and_target(obs_reconstruct, conditions, config.action_dim)
       x = obs_reconstruct_postcond
-      if i%10 == 0:
+      if i%50 == 0:
         print(f"At step {i}:", x[0,0,:])
 
   

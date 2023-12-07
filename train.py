@@ -18,10 +18,10 @@ SEED = 0
 
 class TrainingConfig:
     num_epochs = 1000
-    batch_size = 32
+    batch_size = 320
     learning_rate = 1e-4
     lr_warmup_steps = 1000
-
+    num_train_timesteps = 1000
 # ------------ #
 
 class ConvBlock(nn.Module):
@@ -148,9 +148,8 @@ def get_model(type="unet1d"):
         raise ValueError("Model type not supported")
     return model
 
-def get_noise_scheduler():
-
-    noise_scheduler = DDPMScheduler(num_train_timesteps=1000)
+def get_noise_scheduler(config):
+    noise_scheduler = DDPMScheduler(num_train_timesteps=config.num_train_timesteps)
     return noise_scheduler
 
 def get_optimizer(model, config):
@@ -213,6 +212,12 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
 
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=clean_trajectories.device, dtype=torch.int64)
             noisy_trajectories = noise_scheduler.add_noise(clean_trajectories, noise, timesteps)
+            # Print a clean and noisy trajectory
+            # if step%500 == 0:
+            #     print("Timestep: ", timesteps[0])
+            #     print("Clean trajectory", clean_trajectories[0])
+            #     print("Noisy trajectory", noisy_trajectories[0])
+            
             noise_pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
 
             loss = F.mse_loss(noise_pred, noise)
@@ -238,7 +243,7 @@ if __name__ == "__main__":
     model = get_model('unet1d')
     train_dataloader = MockDataset()
     print(train_dataloader[0])
-    noise_scheduler = get_noise_scheduler()
+    noise_scheduler = get_noise_scheduler(config)
     optimizer = get_optimizer(model, config)
     lr_scheduler = get_lr_scheduler(optimizer, train_dataloader)
 
