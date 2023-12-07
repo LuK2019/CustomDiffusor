@@ -9,11 +9,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datetime import datetime
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 # ------------ #
 #  Parameters  #
 # ------------ #
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+SEED = 0
 
 class TrainingConfig:
     num_epochs = 1000
@@ -232,6 +233,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
     save_checkpoint(model, optimizer, epoch, loss, path)
 
 if __name__ == "__main__":
+    torch.manual_seed(SEED)
     config = TrainingConfig()
     model = get_model('unet1d')
     train_dataloader = MockDataset()
