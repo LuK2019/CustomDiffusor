@@ -195,9 +195,12 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
 
             noise_pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
 
+            assert noise_pred.is_cuda, "Model output is not on GPU: {}".format(noise_pred.device)
+
             if global_step%10 == 0:
                 # get the index of the smallest timestep
                 idx = torch.argmin(timesteps)
+                idx = idx.to(DEVICE)
                 print("Timestep: ", timesteps[idx])
                 print("Noisy trajectory", noisy_trajectories[idx])
                 print("Predicted noise", noise_pred[idx])
