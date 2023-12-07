@@ -8,28 +8,36 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch.nn.functional as F
 from datetime import datetime
+from utils import reset_start_and_target, limits_normalizer
 
 # ------------ #
 #  Parameters  #
 # ------------ #
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+PRED_NOISE = False
 
 print("Using device: ", DEVICE)
 
 SEED = 0
 
 class TrainingConfig:
-    num_epochs = 100000
-    batch_size = 1024
-    learning_rate = 1e-4
+    num_epochs = int(2e6)
+    batch_size = 1600
+    learning_rate = 2e-4
     lr_warmup_steps = 1000
     num_train_timesteps = 1000
+    horizon = 42 #Must be multiple of 8
+    action_dim = 1
+    state_dim = 1
 # ------------ #
 class MockDataset(Dataset):
-    def __init__(self, num_samples=100, sequence_length=8, num_features=2):
+    def __init__(self, num_samples, sequence_length, num_features):
         # Create a dataset of increasing sequences
         self.data = torch.arange(start=0, end=sequence_length, step=1).repeat(num_samples, num_features, 1).float()
+        shape = self.data.shape
+        self.data = limits_normalizer(self.data)
+        assert self.data.shape == shape, f"Normalization changed the shape of the data from {shape} to {self.data.shape}"
         # Optionally, you can add a small random noise to the data to make it slightly more realistic
         # self.data += torch.randn(num_samples, num_features, sequence_length) * 0.1
 
@@ -38,6 +46,7 @@ class MockDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.data[idx]
+    
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -131,7 +140,7 @@ def get_model(type="unet1d"):
     return model
 
 def get_noise_scheduler(config):
-    noise_scheduler = DDPMScheduler(num_train_timesteps=config.num_train_timesteps)
+    noise_scheduler = DDPMScheduler(num_train_timesteps=config.num_train_timesteps, prediction_type="sample")
     return noise_scheduler
 
 def get_optimizer(model, config):
@@ -164,15 +173,19 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
     torch.save(checkpoint, filepath)
     print(f"Saved checkpoint to {filepath}")
 
-def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_scheduler):
+def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_scheduler, conditions):
     now = datetime.now()
     dt_string = now.strftime("%d-%m-%Y_%H-%M-%S")
-
-    model = model.to(DEVICE)
-
     global_step = 0
 
+    model = model.to(DEVICE)
     train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, pin_memory=True, num_workers=0)
+    
+    print(20*"-")
+    print("Starting training loop")
+    print("Total number of epochs: ", config.num_epochs)
+    print("Number of training steps per epoch: ", len(train_dataset)/config.batch_size)
+    print(20*"-")
 
     for epoch in range(config.num_epochs):
         progress_bar = tqdm(total=len(train_dataloader))
@@ -195,9 +208,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             timesteps = timesteps.to(DEVICE)
             noise = noise.to(DEVICE)
 
-            noise_pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
+            pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
 
-            assert noise_pred.is_cuda, "Model output is not on GPU: {}".format(noise_pred.device)
 
             if global_step%10 == 0:
                 # get the index of the smallest timestep
@@ -205,11 +217,15 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
                 idx = idx.to(DEVICE)
                 print("Timestep: ", timesteps[idx])
                 print("Noisy trajectory", noisy_trajectories[idx])
-                print("Predicted noise", noise_pred[idx])
-                print("Reconstructed trajectory", clean_trajectories[idx] - noise_pred[idx])
-                print("Current learning rate", lr_scheduler.get_last_lr()[0])
+                print("Prediction", pred[idx])
+                print("Learning rate", lr_scheduler.get_last_lr()[0])
+            
+            if PRED_NOISE:
+                loss = F.mse_loss(pred, noise)
+            else:
+                pred = reset_start_and_target(pred, conditions, config.action_dim)
+                loss = F.mse_loss(pred, clean_trajectories)
 
-            loss = F.mse_loss(noise_pred, noise)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -221,7 +237,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             progress_bar.set_postfix(**logs)
             global_step += 1
 
-            if global_step % 100000 ==0:
+            if global_step % 10000 ==0:
                     path = f"models/{dt_string}_step_{global_step}.ckpt"
                     save_checkpoint(model, optimizer, epoch, loss, path)
 
@@ -233,10 +249,13 @@ if __name__ == "__main__":
     torch.manual_seed(SEED)
     config = TrainingConfig()
     model = get_model('unet1d')
-    train_dataloader = MockDataset()
-    print(train_dataloader[0])
+    train_dataloader = MockDataset(num_samples=1600, sequence_length=config.horizon, num_features=config.state_dim+config.action_dim)
+    print("train_dataloader[0]: ", train_dataloader[0])
     noise_scheduler = get_noise_scheduler(config)
     optimizer = get_optimizer(model, config)
     lr_scheduler = get_lr_scheduler(optimizer, train_dataloader)
-
-    train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
+    conditions = {
+                0: torch.zeros((config.batch_size, config.state_dim)),
+                -1: torch.ones((config.batch_size, config.state_dim))
+              }
+    train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler, conditions)
