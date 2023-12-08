@@ -1,6 +1,8 @@
 import numpy as np
 
 def reset_start_and_target(x_in, cond, act_dim):
+    if cond == {}:
+        return x_in
     for key, val in cond.items():
         try:
             x_in[:, act_dim:, key] = val.clone()
@@ -12,7 +14,7 @@ def reset_start_and_target(x_in, cond, act_dim):
             print("val.shape: ", val.shape)
             print("x_in[:,act_dim:, key].shape: ", x_in[:, act_dim:, key].shape)
             print(e)
-        return x_in
+    return x_in
 
 
 def limits_normalizer(x):
