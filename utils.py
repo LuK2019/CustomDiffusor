@@ -28,6 +28,16 @@ def load_checkpoint(model, optimizer, filepath):
     print("Loaded checkpoint from epoch {} with loss {} at path {}".format(epoch, loss, filepath))
     return model, optimizer
 
+def save_checkpoint(model, optimizer, epoch, loss, filepath):
+    checkpoint = {
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'epoch': epoch,
+        'loss': loss
+    }
+    torch.save(checkpoint, filepath)
+    print(f"Saved checkpoint to {filepath}")
+
 def limits_normalizer(x):
     '''
         Normalizes the input to the range [-1, 1]

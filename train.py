@@ -1,18 +1,22 @@
-from tqdm.auto import tqdm
 import torch
-from diffusers import UNet1DModel
-from torch.utils.data import Dataset, DataLoader
-from diffusers import DDPMScheduler
-from diffusers.optimization import get_cosine_schedule_with_warmup
 import torch.nn.functional as F
 import torch.nn as nn
-import torch.nn.functional as F
-from datetime import datetime
-from utils import reset_start_and_target, limits_normalizer
+from torch.utils.data import Dataset, DataLoader
+
 import pickle
-# ------------ #
-#  Parameters  #
-# ------------ #
+from datetime import datetime
+from tqdm.auto import tqdm
+
+from diffusers import UNet1DModel
+from diffusers import DDPMScheduler
+
+from diffusers.optimization import get_cosine_schedule_with_warmup
+from utils import reset_start_and_target, limits_normalizer, save_checkpoint
+
+
+# ---------------------------------------------------------- #
+# --------------------- CONFIG ----------------------------- #
+# ---------------------------------------------------------- #
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PRED_NOISE = False
@@ -74,7 +78,6 @@ class SimulatorDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.data[idx]
-    
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -191,16 +194,6 @@ def get_lr_scheduler(optimizer, train_dataloader):
 
     return lr_scheduler
 
-def save_checkpoint(model, optimizer, epoch, loss, filepath):
-    checkpoint = {
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'epoch': epoch,
-        'loss': loss
-    }
-    torch.save(checkpoint, filepath)
-    print(f"Saved checkpoint to {filepath}")
-
 def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_scheduler, conditions):
     now = datetime.now()
     dt_string = now.strftime("%d-%m-%Y_%H-%M-%S")
@@ -215,16 +208,18 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
     print("Number of training steps per epoch: ", len(train_dataset)/config.batch_size)
     print(20*"-")
 
+    progress_bar = tqdm(total=len(train_dataloader))
+
     for epoch in range(config.num_epochs):
-        progress_bar = tqdm(total=len(train_dataloader))
         progress_bar.set_description(f"Epoch {epoch}")
 
         for step, clean_trajectories in enumerate(train_dataloader):
-            noise = torch.randn(clean_trajectories.shape, device=clean_trajectories.device)
             batch_size = clean_trajectories.shape[0]
-
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=clean_trajectories.device, dtype=torch.int64)
+
+            noise = torch.randn(clean_trajectories.shape, device=clean_trajectories.device)
             noisy_trajectories = noise_scheduler.add_noise(clean_trajectories, noise, timesteps)
+
             # Print a clean and noisy trajectory
             # if step%500 == 0:
             #     print("Timestep: ", timesteps[0])
@@ -237,7 +232,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
             noise = noise.to(DEVICE)
 
             pred = model(noisy_trajectories, timesteps, return_dict=False)[0]
-
 
             if global_step%10 == 0:
                 # get the index of the smallest timestep
@@ -270,7 +264,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
                     path = f"models/{dt_string}_step_{global_step}.ckpt"
                     save_checkpoint(model, optimizer, epoch, loss, path)
 
-    now = datetime.now()
     path = f"models/{dt_string}_final_step_{global_step}.ckpt"
     save_checkpoint(model, optimizer, epoch, loss, path)
 
@@ -278,13 +271,17 @@ if __name__ == "__main__":
     torch.manual_seed(SEED)
     config = TrainingConfig()
     model = get_model('unet1d')
+
     # train_dataloader = MockDataset(num_samples=1600, sequence_length=config.horizon, num_features=config.state_dim+config.action_dim)
     train_dataloader = SimulatorDataset(PATH_TO_PICKLE_FILE)
+
     noise_scheduler = get_noise_scheduler(config)
     optimizer = get_optimizer(model, config)
     lr_scheduler = get_lr_scheduler(optimizer, train_dataloader)
+
     conditions = { #TODO: Depending on how we sample, this might be required during traiing as well (as per MJ implementation)
                 # 0: torch.zeros((config.batch_size, config.state_dim)),
                 #-1: torch.ones((config.batch_size, config.state_dim))
               }
+    
     train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler, conditions)
