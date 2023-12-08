@@ -1,4 +1,7 @@
 import numpy as np
+import torch
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def reset_start_and_target(x_in, cond, act_dim):
     if cond == {}:
@@ -16,6 +19,14 @@ def reset_start_and_target(x_in, cond, act_dim):
             print(e)
     return x_in
 
+def load_checkpoint(model, optimizer, filepath):
+    checkpoint = torch.load(filepath, map_location=DEVICE)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    print("Loaded checkpoint from epoch {} with loss {} at path {}".format(epoch, loss, filepath))
+    return model, optimizer
 
 def limits_normalizer(x):
     '''

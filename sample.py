@@ -3,7 +3,7 @@ import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utils import reset_start_and_target, limits_unnormalizer
+from utils import reset_start_and_target, limits_unnormalizer, load_checkpoint
 from train import get_optimizer, get_model, get_noise_scheduler
 
 
@@ -27,14 +27,6 @@ class SamplingConfig:
 # ---------------------------------------------------------- #
 # ---------------------------------------------------------- #
 
-def load_checkpoint(model, optimizer, filepath):
-    checkpoint = torch.load(filepath, map_location=DEVICE)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    print("Loaded checkpoint from epoch {} with loss {} at path {}".format(epoch, loss, filepath))
-    return model, optimizer
 
 if __name__ == "__main__":
   config = SamplingConfig()
