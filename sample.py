@@ -16,7 +16,7 @@ CHECKPOINT = "07-12-2023_16-04-59_final_step_600"
 
 class SamplingConfig:
   batch_size = 32
-  horizon = 24
+  horizon = 40
   state_dim = 2
   action_dim = 2
   learning_rate = 1e-4 # Only relevant to load the optimizer
