@@ -16,19 +16,19 @@ import pickle
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PRED_NOISE = False
-PATH_TO_PICKLE_FILE = '/Users/luke/Projects/Ocean/MockSimulator/logs/concatenated_buffer_20231202-115430.pkl'
+PATH_TO_PICKLE_FILE = '/Users/luke/Projects/Ocean/MockSimulator/logs/concatenated_buffer_20231207-190028.pkl'
 
 print("Using device: ", DEVICE)
 
 SEED = 0
 
 class TrainingConfig:
-    num_epochs = 200 # int(2e6)
-    batch_size = 32 # Must be multiple of 8
+    num_epochs = 1 # int(2e6)
+    batch_size = 8*100 # Must be multiple of 8
     learning_rate =1e-5 # 2e-4
     lr_warmup_steps = 1000
     num_train_timesteps = 1000
-    horizon = 24 # Must be multiple of 8
+    horizon = 40 # Must be multiple of 8
     action_dim = 2
     state_dim = 2
 # ------------ #
