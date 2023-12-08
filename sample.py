@@ -5,9 +5,10 @@ import torch.nn.functional as F
 import tqdm
 from utils import reset_start_and_target, limits_unnormalizer
 from train import get_optimizer, get_model, get_noise_scheduler
+import matplotlib.pyplot as plt
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-CHECKPOINT = "07-12-2023_22-12-25_step_10000"
+CHECKPOINT = "07-12-2023_16-04-59_final_step_600"
 
 # ------------ #
 #  Parameters  #
@@ -15,14 +16,14 @@ CHECKPOINT = "07-12-2023_22-12-25_step_10000"
 
 class SamplingConfig:
   batch_size = 32
-  horizon = 40
-  state_dim = 1
-  action_dim = 1
-  learning_rate = 1e-4
+  horizon = 24
+  state_dim = 2
+  action_dim = 2
+  learning_rate = 1e-4 # Only relevant to load the optimizer
   eta = 1.0
   num_train_timesteps = 1000
   min = 0
-  max = 41
+  max = 20
 
 # ------------ #
 
@@ -43,8 +44,8 @@ if __name__ == "__main__":
   optimizer = get_optimizer(model, config)
   model, optimizer = load_checkpoint(model, optimizer, "models/"+CHECKPOINT+".ckpt")
   conditions = {
-                0: torch.ones((config.batch_size, config.state_dim))*(-1),
-                -1: torch.ones((config.batch_size, config.state_dim))
+                0: torch.ones((config.batch_size, config.state_dim))*(-0.9),
+                -1: torch.ones((config.batch_size, config.state_dim))*0.9
               }
   # sample random initial noise vector and condition on first state
   x = torch.randn(shape, device=DEVICE)
@@ -58,6 +59,7 @@ if __name__ == "__main__":
       timesteps = torch.full((config.batch_size,), i, device=DEVICE, dtype=torch.long)
 
       with torch.no_grad():
+        print("shape of x and timesteps: ", x.shape, timesteps.shape)
         residual = model(x, timesteps).sample
 
       obs_reconstruct = scheduler.step(residual, i, x)["prev_sample"]
@@ -70,7 +72,18 @@ if __name__ == "__main__":
 
       obs_reconstruct_postcond = reset_start_and_target(obs_reconstruct, conditions, config.action_dim)
       x = obs_reconstruct_postcond
-      if i%50 == 0:
+      if i%250 == 0 or i == 1:
         print(f"At step {i}:", x[0,:,:],"\n" , limits_unnormalizer(x[0,:,:].cpu(), config.min, config.max))
+        unnormalized_output = limits_unnormalizer(x[0,:,:].cpu(), config.min, config.max)
+        # plot the output
+        # fix the x and y axis to be in the range [min, max]
+        plt.ylim(config.min, config.max)
+        plt.xlim(0, config.horizon)
+        # plot the states as as scatter plot
+        plt.scatter(unnormalized_output[2,:],unnormalized_output[3,:])
+        if DEVICE == 'cuda':
+          plt.savefig(f"CHECKPOINT_sample_step{i}_.png")
+        else:
+          plt.show()
 
   

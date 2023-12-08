@@ -9,38 +9,66 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datetime import datetime
 from utils import reset_start_and_target, limits_normalizer
-
+import pickle
 # ------------ #
 #  Parameters  #
 # ------------ #
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PRED_NOISE = False
+PATH_TO_PICKLE_FILE = '/Users/luke/Projects/Ocean/MockSimulator/logs/concatenated_buffer_20231202-115430.pkl'
 
 print("Using device: ", DEVICE)
 
 SEED = 0
 
 class TrainingConfig:
-    num_epochs = int(2e6)
-    batch_size = 1600
+    num_epochs = 200 # int(2e6)
+    batch_size = 32 # Must be multiple of 8
     learning_rate =1e-5 # 2e-4
     lr_warmup_steps = 1000
     num_train_timesteps = 1000
-    horizon = 40 #Must be multiple of 8
-    action_dim = 1
-    state_dim = 1
+    horizon = 24 # Must be multiple of 8
+    action_dim = 2
+    state_dim = 2
 # ------------ #
+
 class MockDataset(Dataset):
     def __init__(self, num_samples, sequence_length, num_features):
-        # Create a dataset of increasing sequences
         self.data = torch.arange(start=0, end=sequence_length, step=1).repeat(num_samples, num_features, 1).float()
         shape = self.data.shape
         self.data = limits_normalizer(self.data)
         assert self.data.shape == shape, f"Normalization changed the shape of the data from {shape} to {self.data.shape}"
-        # Optionally, you can add a small random noise to the data to make it slightly more realistic
-        # self.data += torch.randn(num_samples, num_features, sequence_length) * 0.1
 
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
+class SimulatorDataset(Dataset):
+    def __init__(self, path_to_pickl_file):
+        # load the np.array from the pickle file
+        with open(path_to_pickl_file, 'rb') as f:
+            self.data = pickle.load(f)
+        assert self.data.shape[1] == 4, f"Data must have 4 channels, but has {self.data.shape[1]}"
+        print("Loaded data with shape: ", self.data.shape)
+        print("Example: First 5 steps of the first trajectory data[0, :, :5]: ", self.data[0, :, :5])
+        if self.data.shape[0] % 8 != 0:
+            print("Warning: The number of trajectories is not a multiple of 8. The last few trajectories will be ignored.")
+            self.data = self.data[:-(self.data.shape[0]%8), :, :]
+            print("Number of trajectories after removing the last few: ", self.data.shape[0])
+        if self.data.shape[2] % 8 != 0:
+            print("Warning: The number of timesteps is not a multiple of 8. The last few timesteps will be ignored.")
+            self.data = self.data[:, :, :-(self.data.shape[2]%8)]
+            print("Number of timesteps after removing the last few: ", self.data.shape[2])
+        # Convert the data to float double
+        self.data = self.data.astype('float32')
+        # Normalize the data
+        shape = self.data.shape
+        self.data = limits_normalizer(self.data)
+        assert self.data.shape == shape, f"Normalization changed the shape of the data from {shape} to {self.data.shape}"
+    
     def __len__(self):
         return len(self.data)
 
@@ -114,10 +142,10 @@ def get_model(type="unet1d"):
     '''
     if type == "unet1d":
         model = UNet1DModel(
-            sample_size = 8,
+            sample_size = 24, #TODO: Still not sure how to update this and when.
             sample_rate = None,
-            in_channels= 2,
-            out_channels= 2,
+            in_channels= 4, # Update depending on the number of channels in the data (i.e., dim states + dim actions)
+            out_channels= 4, # Update depending on the number of channels in the data (i.e., dim states + dim actions)
             extra_in_channels= 0,
             time_embedding_type = "positional",
             flip_sin_to_cos = True,
@@ -224,6 +252,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataset, lr_sche
                 loss = F.mse_loss(pred, noise)
             else:
                 pred = reset_start_and_target(pred, conditions, config.action_dim)
+                # print("Shape of pred after resetting start and target: ", pred.shape)
                 loss = F.mse_loss(pred, clean_trajectories)
 
             loss.backward()
@@ -249,13 +278,13 @@ if __name__ == "__main__":
     torch.manual_seed(SEED)
     config = TrainingConfig()
     model = get_model('unet1d')
-    train_dataloader = MockDataset(num_samples=1600, sequence_length=config.horizon, num_features=config.state_dim+config.action_dim)
-    print("train_dataloader[0]: ", train_dataloader[0])
+    # train_dataloader = MockDataset(num_samples=1600, sequence_length=config.horizon, num_features=config.state_dim+config.action_dim)
+    train_dataloader = SimulatorDataset(PATH_TO_PICKLE_FILE)
     noise_scheduler = get_noise_scheduler(config)
     optimizer = get_optimizer(model, config)
     lr_scheduler = get_lr_scheduler(optimizer, train_dataloader)
-    conditions = {
-                0: torch.zeros((config.batch_size, config.state_dim)),
-                -1: torch.ones((config.batch_size, config.state_dim))
+    conditions = { #TODO: Depending on how we sample, this might be required during traiing as well (as per MJ implementation)
+                # 0: torch.zeros((config.batch_size, config.state_dim)),
+                #-1: torch.ones((config.batch_size, config.state_dim))
               }
     train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler, conditions)
