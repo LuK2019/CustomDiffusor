@@ -11,10 +11,10 @@ from train import get_optimizer, get_model, get_noise_scheduler
 # --------------------- CONFIG ----------------------------- #
 # ---------------------------------------------------------- #
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-CHECKPOINT = "08-12-2023_04-27-51_final_step_50000"
+CHECKPOINT = "08-12-2023_07-02-25_final_step_80000"
 
 class SamplingConfig:
-  batch_size = 32
+  batch_size = 3
   horizon = 40
   state_dim = 2
   action_dim = 2
@@ -36,9 +36,8 @@ if __name__ == "__main__":
   optimizer = get_optimizer(model, config)
   model, optimizer = load_checkpoint(model, optimizer, "models/"+CHECKPOINT+".ckpt")
   conditions = {
-                0: torch.ones((config.batch_size, config.state_dim))*(-0.9),
-                19: torch.ones((config.batch_size, config.state_dim))*0.9*torch.tensor([-1, 1]),
-                -1: torch.ones((config.batch_size, config.state_dim))*0.9*torch.tensor([-1, 1])
+                0: torch.ones((config.batch_size, config.state_dim))*(-0.6),
+                -1: torch.ones((config.batch_size, config.state_dim))*0.6, #*torch.tensor([-1, 1])
               }
 
   x = torch.randn(shape, device=DEVICE)
@@ -65,17 +64,22 @@ if __name__ == "__main__":
       obs_reconstruct_postcond = reset_start_and_target(obs_reconstruct, conditions, config.action_dim)
       x = obs_reconstruct_postcond
 
-      if i%500 == 0:
+      # convert tensor i to int 
+      i = int(i)
+      if i < 10 and i%1==0:
         print(f"At step {i}:", x[0,:,:],"\n" , limits_unnormalizer(x[0,:,:].cpu(), config.min, config.max))
-        unnormalized_output = limits_unnormalizer(x[0,:,:].cpu(), config.min, config.max)
+        for k in range(1):
+          unnormalized_output = limits_unnormalizer(x[k,:,:].cpu(), config.min, config.max)
 
-        # Create a sequence of numbers from 0 to 1, corresponding to each point in the trajectory
-        num_points = unnormalized_output.shape[1]
-        colors = np.linspace(0, 1, num_points)\
-        # plot the output
-        plt.ylim(config.min, config.max)
-        plt.xlim(config.min, config.max)
-        # Use a colormap to map the sequence of numbers to colors (light red to dark red)
-        # 'Reds' is a built-in colormap ranging from light to dark red
-        plt.scatter(unnormalized_output[2,:], unnormalized_output[3,:], c=colors, cmap='Reds')
-        plt.show()  
+          # Create a sequence of numbers from 0 to 1, corresponding to each point in the trajectory
+          num_points = unnormalized_output.shape[1]
+          colors = np.linspace(0, 1, num_points)
+          colors[0] = 1
+          # plot the output
+          plt.ylim(config.min, config.max)
+          plt.xlim(config.min, config.max)
+          # Use a colormap to map the sequence of numbers to colors (light red to dark red)
+          # 'Reds' is a built-in colormap ranging from light to dark red
+          plt.scatter(unnormalized_output[2,:], unnormalized_output[3,:], c=colors, cmap='Reds')
+          print(i, k)
+          plt.show()  
